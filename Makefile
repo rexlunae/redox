@@ -6,8 +6,8 @@ BUILD=build/$(ARCH)-unknown-redox/debug
 
 QEMU?=qemu-system-$(ARCH)
 
-CARGO=CARGO_TARGET_DIR=build cargo rustc
-CARGOFLAGS=--target=$(ARCH)-unknown-redox.json -- -L $(BUILD) \
+CARGO=CARGO_TARGET_DIR=build RUSTC="./rustc-$(ARCH).sh" cargo rustc
+CARGOFLAGS=--verbose --target=$(ARCH)-unknown-redox.json -- -L $(BUILD) \
 	-C no-prepopulate-passes -C no-stack-check -C opt-level=2 \
 	-Z no-landing-pads \
 	-A dead_code
@@ -133,9 +133,6 @@ help:
 
 all: $(BUILD)/harddrive.bin
 
-filesystem/apps/rusthello/main.bin: filesystem/apps/rusthello/main.rs filesystem/apps/rusthello/*.rs filesystem/apps/rusthello/*/*.rs $(BUILD)/crt0.o $(BUILD)/libstd.rlib
-	$(RUSTC) $(RUSTCFLAGS) --crate-type bin -o $@ $<
-
 filesystem/apps/sodium/main.bin: filesystem/apps/sodium/src/main.rs filesystem/apps/sodium/src/*.rs $(BUILD)/libstd.rlib $(BUILD)/liborbclient.rlib
 	$(RUSTC) $(RUSTCFLAGS) --crate-type bin -o $@ $< --cfg 'feature="orbital"'
 
@@ -148,46 +145,53 @@ filesystem/apps/%/main.bin: filesystem/apps/%/main.rs filesystem/apps/%/*.rs $(B
 filesystem/apps/%/main.bin: crates/orbutils/src/%/main.rs crates/orbutils/src/%/*.rs $(BUILD)/crt0.o $(BUILD)/libstd.rlib $(BUILD)/liborbclient.rlib $(BUILD)/liborbtk.rlib
 	$(RUSTC) $(RUSTCFLAGS) --crate-type bin -o $@ $<
 
-apps: filesystem/apps/editor/main.bin \
+apps: filesystem/apps/calculator/main.bin \
+	  filesystem/apps/editor/main.bin \
 	  filesystem/apps/file_manager/main.bin \
 	  filesystem/apps/orbtk/main.bin \
 	  filesystem/apps/player/main.bin \
-	  filesystem/apps/rusthello/main.bin \
 	  filesystem/apps/sodium/main.bin \
 	  filesystem/apps/terminal/main.bin \
 	  filesystem/apps/viewer/main.bin
 
-$(BUILD)/libcoreutils.rlib: crates/coreutils/src/lib.rs crates/coreutils/src/*.rs $(BUILD)/libstd.rlib
-	$(RUSTC) $(RUSTCFLAGS) --crate-name coreutils --crate-type lib -o $@ $<
+$(BUILD)/libextra.rlib: crates/extra/src/lib.rs crates/extra/src/*.rs $(BUILD)/libstd.rlib
+	$(RUSTC) $(RUSTCFLAGS) --crate-name extra --crate-type lib -o $@ $<
 
-filesystem/bin/%: crates/coreutils/src/bin/%.rs $(BUILD)/crt0.o $(BUILD)/libcoreutils.rlib
+filesystem/bin/%: crates/coreutils/src/bin/%.rs $(BUILD)/crt0.o $(BUILD)/libextra.rlib
 	mkdir -p filesystem/bin
 	$(RUSTC) $(RUSTCFLAGS) --crate-type bin -o $@ $<
 
 coreutils: \
+	filesystem/bin/basename \
 	filesystem/bin/cat \
+	filesystem/bin/clear \
 	filesystem/bin/cp \
 	filesystem/bin/du \
 	filesystem/bin/echo \
+	filesystem/bin/env \
 	filesystem/bin/false \
 	filesystem/bin/free \
+	filesystem/bin/head \
 	filesystem/bin/ls \
 	filesystem/bin/mkdir \
+	filesystem/bin/mv \
 	filesystem/bin/ps \
 	filesystem/bin/pwd \
 	filesystem/bin/realpath \
+	filesystem/bin/reset \
 	filesystem/bin/rm \
 	filesystem/bin/rmdir \
 	filesystem/bin/seq \
 	filesystem/bin/shutdown \
 	filesystem/bin/sleep \
+	filesystem/bin/tail \
 	filesystem/bin/touch \
-	filesystem/bin/wc \
 	filesystem/bin/true \
+	filesystem/bin/wc \
 	filesystem/bin/yes
-	#TODO: filesystem/bin/env
+	#TODO: filesystem/bin/test
 
-$(BUILD)/libbinutils.rlib: crates/binutils/src/lib.rs crates/binutils/src/*.rs $(BUILD)/libcoreutils.rlib
+$(BUILD)/libbinutils.rlib: crates/binutils/src/lib.rs crates/binutils/src/*.rs $(BUILD)/libextra.rlib
 	$(RUSTC) $(RUSTCFLAGS) --crate-name binutils --crate-type lib -o $@ $<
 
 filesystem/bin/%: crates/binutils/src/bin/%.rs $(BUILD)/crt0.o $(BUILD)/libbinutils.rlib
@@ -199,15 +203,39 @@ binutils: \
 	filesystem/bin/hexdump \
 	filesystem/bin/strings
 
-filesystem/bin/%: crates/extrautils/src/bin/%.rs $(BUILD)/crt0.o $(BUILD)/libcoreutils.rlib
+filesystem/bin/%: drivers/%/main.rs $(BUILD)/crt0.o $(BUILD)/libstd.rlib $(BUILD)/libio.rlib
+	mkdir -p filesystem/bin
+	$(RUSTC) $(RUSTCFLAGS) --crate-type bin -o $@ $<
+
+drivers: \
+	filesystem/bin/seriald
+
+$(BUILD)/libtermion.rlib: crates/termion/src/lib.rs crates/termion/src/*.rs $(BUILD)/libstd.rlib
+	$(RUSTC) $(RUSTCFLAGS) --crate-name termion --crate-type lib -o $@ $< --cfg 'feature="nightly"'
+
+filesystem/bin/%: crates/extrautils/src/bin/%.rs $(BUILD)/crt0.o $(BUILD)/libextra.rlib $(BUILD)/libtermion.rlib
 	mkdir -p filesystem/bin
 	$(RUSTC) $(RUSTCFLAGS) --crate-type bin -o $@ $<
 
 extrautils: \
-	filesystem/bin/cur \
+	filesystem/bin/calc \
 	filesystem/bin/cksum \
+	filesystem/bin/cur \
+	filesystem/bin/grep \
+	filesystem/bin/less \
+	filesystem/bin/mtxt \
 	filesystem/bin/rem
-	#TODO: filesystem/bin/mtxt
+
+filesystem/bin/%: crates/games/src/%/main.rs crates/games/src/%/*.rs $(BUILD)/crt0.o $(BUILD)/libextra.rlib $(BUILD)/libtermion.rlib
+	mkdir -p filesystem/bin
+	$(RUSTC) $(RUSTCFLAGS) --crate-type bin -o $@ $<
+
+games: \
+	filesystem/bin/ice \
+	filesystem/bin/h4xx3r \
+	filesystem/bin/minesweeper \
+	filesystem/bin/rusthello \
+	filesystem/bin/snake
 
 filesystem/bin/%: crates/%/main.rs crates/%/*.rs $(BUILD)/crt0.o $(BUILD)/libstd.rlib
 	mkdir -p filesystem/bin
@@ -232,10 +260,15 @@ filesystem/bin/launcher: crates/orbutils/src/launcher/main.rs crates/orbutils/sr
 	mkdir -p filesystem/bin
 	$(RUSTC) $(RUSTCFLAGS) --crate-type bin -o $@ $<
 
+filesystem/bin/zfs: crates/zfs/src/main.rs crates/zfs/src/*.rs $(BUILD)/crt0.o $(BUILD)/libstd.rlib
+	mkdir -p filesystem/bin
+	$(RUSTC) $(RUSTCFLAGS) --crate-type bin -o $@ $<
 
 bins: \
 	coreutils \
 	extrautils \
+	drivers \
+	games \
 	filesystem/bin/ansi-test \
 	filesystem/bin/c-test \
 	filesystem/bin/dosbox \
@@ -245,25 +278,62 @@ bins: \
   	filesystem/bin/ion \
 	filesystem/bin/launcher \
   	filesystem/bin/lua \
+  	filesystem/bin/luac \
   	filesystem/bin/login \
+  	filesystem/bin/minesweeper \
   	filesystem/bin/orbital \
+	filesystem/bin/std-test \
   	filesystem/bin/sdl-test \
   	filesystem/bin/sdl-ttf-test \
   	filesystem/bin/sh \
 	filesystem/bin/tar \
-	filesystem/bin/test \
-	filesystem/bin/zfs
-	#TODO: binutils
+	#TODO: binutils	filesystem/bin/zfs
 
 initfs/redoxfsd: crates/redoxfs/scheme/main.rs crates/redoxfs/scheme/*.rs $(BUILD)/crt0.o $(BUILD)/libstd.rlib $(BUILD)/libredoxfs.rlib
 	mkdir -p initfs/
 	$(RUSTC) $(RUSTCFLAGS) --crate-type bin -o $@ $<
 
-build/initfs.gen: initfs/redoxfsd
+initfs/build-arch:
+	mkdir -p initfs/
+	echo $(ARCH) > $@
+
+initfs/build-branch:
+	mkdir -p initfs/
+	git rev-parse --abbrev-ref HEAD > $@
+
+initfs/build-cargo:
+	mkdir -p initfs/
+	cargo -V > $@
+
+initfs/build-date:
+	mkdir -p initfs/
+	date > $@
+
+initfs/build-host:
+	mkdir -p initfs/
+	uname -a > $@
+
+initfs/build-rustc:
+	mkdir -p initfs/
+	$(RUSTC) -V > $@
+
+initfs/build-rev:
+	mkdir -p initfs/
+	git rev-parse HEAD > $@
+
+build/initfs.gen: \
+		initfs/redoxfsd \
+		initfs/build-arch \
+		initfs/build-branch \
+		initfs/build-cargo \
+		initfs/build-date \
+		initfs/build-host \
+		initfs/build-rustc \
+		initfs/build-rev
 	echo 'use collections::BTreeMap;' > $@
 	echo 'pub fn gen() -> BTreeMap<&'"'"'static str, &'"'"'static [u8]> {' >> $@
 	echo '    let mut files: BTreeMap<&'"'"'static str, &'"'"'static [u8]> = BTreeMap::new();' >> $@
-	$(FIND) initfs -not -path '*/\.*' -type f -o -type l | $(CUT) -d '/' -f2- | $(SORT) \
+	$(FIND) initfs -type f -o -type l | $(CUT) -d '/' -f2- | $(SORT) \
 		| $(AWK) '{printf("    files.insert(\"%s\", include_bytes!(\"../initfs/%s\"));\n", $$0, $$0)}' \
 		>> $@
 	echo '    files' >> $@
@@ -354,7 +424,7 @@ $(BUILD)/liblibc.rlib: rust/src/liblibc/src/lib.rs $(BUILD)/libcore.rlib
 	$(RUSTC) $(RUSTCFLAGS) -o $@ $<
 
 $(BUILD)/librealstd.rlib: rust/src/libstd/lib.rs $(BUILD)/libcore.rlib $(BUILD)/liblibc.rlib $(BUILD)/liballoc.rlib $(BUILD)/librustc_unicode.rlib $(BUILD)/libcollections.rlib $(BUILD)/librand.rlib
-	$(RUSTC) $(RUSTCFLAGS) --cfg unix -o $@ $<
+	$(RUSTC) $(RUSTCFLAGS) --cfg unix --crate-type rlib -o $@ $<
 
 $(BUILD)/libstd.rlib: libstd/src/lib.rs libstd/src/*.rs libstd/src/*/*.rs libstd/src/*/*/*.rs $(BUILD)/libcore.rlib $(BUILD)/liballoc.rlib $(BUILD)/libcollections.rlib $(BUILD)/librand.rlib $(BUILD)/libsystem.rlib
 	$(RUSTC) $(RUSTCFLAGS) -o $@ $<
@@ -451,7 +521,7 @@ filesystem/apps/zfs/zfs.img:
 	sudo losetup -d /dev/loop0
 
 $(BUILD)/filesystem.gen: apps bins
-	$(FIND) filesystem -not -path '*/\.*' -type f -o -type l | $(CUT) -d '/' -f2- | $(SORT) | $(AWK) '{printf("file %d,\"%s\"\n", NR, $$0)}' > $@
+	$(FIND) filesystem -type f -o -type l | $(CUT) -d '/' -f2- | $(SORT) | $(AWK) '{printf("file %d,\"%s\"\n", NR, $$0)}' > $@
 
 $(BUILD)/harddrive.bin: kernel/harddrive.asm $(BUILD)/kernel.bin $(BUILD)/filesystem.gen
 	$(AS) -f bin -o $@ -l $(BUILD)/harddrive.list -D ARCH_$(ARCH) -D TIME="`$(DATE) "+%F %T"`" -i$(BUILD)/ -ikernel/ -ifilesystem/ $<
@@ -466,21 +536,22 @@ virtualbox: $(BUILD)/harddrive.bin
 	echo "Set Configuration"
 	$(VBM) modifyvm Redox --memory 1024
 	$(VBM) modifyvm Redox --vram 16
-	$(VBM) modifyvm Redox --nic1 nat
-	$(VBM) modifyvm Redox --nictype1 82540EM
-	$(VBM) modifyvm Redox --nictrace1 on
-	$(VBM) modifyvm Redox --nictracefile1 $(BUILD)/network.pcap
+	# $(VBM) modifyvm Redox --nic1 nat
+	# $(VBM) modifyvm Redox --nictype1 82540EM
+	# $(VBM) modifyvm Redox --nictrace1 on
+	# $(VBM) modifyvm Redox --nictracefile1 $(BUILD)/network.pcap
 	$(VBM) modifyvm Redox --uart1 0x3F8 4
 	$(VBM) modifyvm Redox --uartmode1 file $(BUILD)/serial.log
-	$(VBM) modifyvm Redox --usb on
-	$(VBM) modifyvm Redox --mouse usbtablet
-	#$(VBM) modifyvm Redox --audio $(VB_AUDIO)
-	#$(VBM) modifyvm Redox --audiocontroller ac97
+	$(VBM) modifyvm Redox --usb off # on
+	$(VBM) modifyvm Redox --keyboard ps2
+	$(VBM) modifyvm Redox --mouse ps2
+	# $(VBM) modifyvm Redox --audio $(VB_AUDIO)
+	# $(VBM) modifyvm Redox --audiocontroller ac97
 	echo "Create Disk"
 	$(VBM) convertfromraw $< $(BUILD)/harddrive.vdi
 	echo "Attach Disk"
 	#PATA
-	#$(VBM) storagectl Redox --name ATA --add ide --controller PIIX4 --bootable on
+	# $(VBM) storagectl Redox --name ATA --add ide --controller PIIX4 --bootable on
 	#SATA
 	$(VBM) storagectl Redox --name ATA --add sata --controller IntelAHCI --bootable on --portcount 1
 	$(VBM) storageattach Redox --storagectl ATA --port 0 --device 0 --type hdd --medium $(BUILD)/harddrive.vdi

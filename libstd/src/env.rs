@@ -2,14 +2,19 @@
 
 use alloc::boxed::Box;
 
+use core_collections::borrow::ToOwned;
+
+use ffi::OsString;
 use fs::File;
 use path::{Path, PathBuf};
-use io::Result;
 use string::{String, ToString};
+use sys_common::AsInner;
 use vec::Vec;
 
-use system::error::{Error, ENOENT};
+use system::error::ENOENT;
 use system::syscall::sys_chdir;
+
+use io::{Error, Result};
 
 static mut _args: *mut Vec<&'static str> = 0 as *mut Vec<&'static str>;
 
@@ -86,12 +91,19 @@ pub fn home_dir() -> Option<PathBuf> {
     get_path_from("/home/").ok()
 }
 
+pub fn temp_dir() -> Option<PathBuf> {
+    get_path_from("/tmp/").ok()
+}
+
 /// Set the current directory
 pub fn set_current_dir<P: AsRef<Path>>(path: P) -> Result<()> {
-    let file_result = if path.as_ref().inner.is_empty() || path.as_ref().inner.ends_with('/') {
-        File::open(&path.as_ref().inner)
+    let path_str = path.as_ref().as_os_str().as_inner();
+    let file_result = if path_str.is_empty() || path_str.ends_with('/') {
+        File::open(path_str)
     } else {
-        File::open(&(path.as_ref().inner.to_string() + "/"))
+        let mut path_string = path_str.to_owned();
+        path_string.push_str("/");
+        File::open(path_string)
     };
 
     match file_result {
@@ -99,12 +111,13 @@ pub fn set_current_dir<P: AsRef<Path>>(path: P) -> Result<()> {
             match file.path() {
                 Ok(path) => {
                     if let Some(path_str) = path.to_str() {
-                        let path_c = path_str.to_string() + "\0";
+                        let mut path_c = path_str.to_owned();
+                        path_c.push_str("\0");
                         unsafe {
                             sys_chdir(path_c.as_ptr()).and(Ok(()))
-                        }
+                        }.map_err(|x| Error::from_sys(x))
                     } else {
-                        Err(Error::new(ENOENT))
+                        Err(Error::new_sys(ENOENT))
                     }
                 }
                 Err(err) => Err(err),
@@ -114,7 +127,25 @@ pub fn set_current_dir<P: AsRef<Path>>(path: P) -> Result<()> {
     }
 }
 
+pub enum VarError {
+    NotPresent,
+    NotUnicode(OsString),
+}
+
 // TODO: Fully implement `env::var()`
-pub fn var(_key: &str) -> Result<String> {
-    Ok("This is code filler".to_string())
+pub fn var(_key: &str) -> ::core::result::Result<String, VarError> {
+    Err(VarError::NotPresent)
+}
+
+pub struct Vars;
+
+impl Iterator for Vars {
+    type Item = (String, String);
+    fn next(&mut self) -> Option<Self::Item> {
+        None
+    }
+}
+
+pub fn vars() -> Vars {
+    Vars
 }

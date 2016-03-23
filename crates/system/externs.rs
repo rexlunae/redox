@@ -1,8 +1,9 @@
-#[lang="stack_exhausted"]
-extern "C" fn stack_exhausted() {}
-
 #[lang="eh_personality"]
 extern "C" fn eh_personality() {}
+
+#[no_mangle]
+#[allow(non_snake_case)]
+pub extern "C" fn _Unwind_Resume(_ex_obj: *mut ()) { }
 
 /// Memcpy
 ///

@@ -1,4 +1,4 @@
-use syscall::{syscall0, syscall1, syscall2, syscall3};
+use syscall::arch::{syscall0, syscall1, syscall2, syscall3};
 use error::Result;
 
 pub const SYS_BRK: usize = 45;
@@ -20,6 +20,7 @@ pub const SYS_FSTAT: usize = 28;
 pub const SYS_FSYNC: usize = 118;
 pub const SYS_FTRUNCATE: usize = 93;
 pub const SYS_GETPID: usize = 20;
+pub const SYS_IOPL: usize = 110;
 pub const SYS_LINK: usize = 9;
 pub const SYS_LSEEK: usize = 19;
     pub const SEEK_SET: usize = 0;
@@ -43,17 +44,22 @@ pub const SYS_OPEN: usize = 5;
 pub const SYS_PIPE2: usize = 331;
 pub const SYS_READ: usize = 3;
 pub const SYS_RMDIR: usize = 84;
+pub const SYS_STAT: usize = 18;
+    pub const MODE_DIR: u16 = 0x4000;
+    pub const MODE_FILE: u16 = 0x8000;
 pub const SYS_UNLINK: usize = 10;
 pub const SYS_WAITPID: usize = 7;
 pub const SYS_WRITE: usize = 4;
 pub const SYS_YIELD: usize = 158;
 
+#[derive(Copy, Clone, Debug, Default)]
 #[repr(packed)]
 pub struct Stat {
-    pub st_mode: usize,
-    pub st_size: usize
+    pub st_mode: u16,
+    pub st_size: u64
 }
 
+#[derive(Copy, Clone, Debug, Default)]
 #[repr(packed)]
 pub struct TimeSpec {
     pub tv_sec: i64,
@@ -112,6 +118,10 @@ pub fn sys_getpid() -> Result<usize> {
     unsafe { syscall0(SYS_GETPID) }
 }
 
+pub unsafe fn sys_iopl(level: usize) -> Result<usize> {
+    syscall1(SYS_IOPL, level)
+}
+
 pub unsafe fn sys_link(old: *const u8, new: *const u8) -> Result<usize> {
     syscall2(SYS_LINK, old as usize, new as usize)
 }
@@ -142,6 +152,10 @@ pub fn sys_read(fd: usize, buf: &mut [u8]) -> Result<usize> {
 
 pub unsafe fn sys_rmdir(path: *const u8) -> Result<usize> {
     syscall1(SYS_RMDIR, path as usize)
+}
+
+pub unsafe fn sys_stat(path: *const u8, stat: &mut Stat) -> Result<usize> {
+    syscall2(SYS_STAT, path as usize, stat as *mut Stat as usize)
 }
 
 pub unsafe fn sys_unlink(path: *const u8) -> Result<usize> {

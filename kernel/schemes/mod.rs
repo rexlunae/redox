@@ -16,5 +16,7 @@ pub mod interrupt;
 pub mod memory;
 /// Pipes
 pub mod pipe;
+/// Supervisor
+pub mod supervisor;
 /// Tests
 pub mod test;

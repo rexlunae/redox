@@ -13,7 +13,7 @@ use system::error::{Error, Result, ECHILD, EINVAL, EACCES};
 
 use super::execute::execute;
 
-use fs::SupervisorResource;
+use schemes::supervisor::SupervisorResource;
 
 pub fn do_sys_clone(regs: &Regs) -> Result<usize> {
     unsafe { context_clone(regs) }
@@ -108,6 +108,45 @@ pub fn do_sys_iopl(regs: &mut Regs) -> Result<usize> {
     }
 }
 
+/// Supervise a child process of the current context.
+///
+/// This will make all syscalls the given process makes mark the process as blocked, until it is
+/// handled by the supervisor (parrent process) through the returned handle (for details, see the
+/// docs in the `system` crate).
+///
+/// This routine is done by having a field defining whether the process is blocked by a syscall.
+/// When the syscall is read from the file handle, this field is set to false, but the process is
+/// still stopped (because it is marked as `blocked`), until the new value of the EAX register is
+/// written to the file handle.
+pub fn do_sys_supervise(pid: usize) -> Result<usize> {
+    let mut contexts = ::env().contexts.lock();
+    let cur_pid = try!(contexts.current_mut()).pid;
+
+    {
+        let jailed = try!(contexts.find_mut(pid));
+
+        // Make sure that this is actually a child process of the invoker.
+        if jailed.ppid != cur_pid {
+            return Err(Error::new(EACCES));
+        }
+
+        jailed.supervised = true;
+    }
+
+    let current = try!(contexts.current_mut());
+
+    let fd = current.next_fd();
+
+    let resource = try!(SupervisorResource::new(pid));
+
+    (unsafe { &mut *current.files.get() }).push(ContextFile {
+        fd: fd,
+        resource: resource,
+    });
+
+    Ok(fd)
+}
+
 //TODO: Finish implementation, add more functions to WaitMap so that matching any or using WNOHANG works
 pub fn do_sys_waitpid(pid: isize, status_ptr: *mut usize, _options: usize) -> Result<usize> {
     let mut contexts = ::env().contexts.lock();
@@ -133,41 +172,4 @@ pub fn do_sys_yield() -> Result<usize> {
         context_switch();
     }
     Ok(0)
-}
-
-/// Supervise a child process of the current context.
-///
-/// This will make all syscalls the given process makes mark the process as blocked, until it is
-/// handled by the supervisor (parrent process) through the returned handle (for details, see the
-/// docs in the `system` crate).
-///
-/// This routine is done by having a field defining whether the process is blocked by a syscall.
-/// When the syscall is read from the file handle, this field is set to false, but the process is
-/// still stopped (because it is marked as `blocked`), until the new value of the EAX register is
-/// written to the file handle.
-pub fn do_sys_supervise(pid: usize) -> Result<usize> {
-    let mut contexts = ::env().contexts.lock();
-    let cur_pid = contexts.i;
-
-    {
-        let jailed = try!(contexts.get_mut(pid));
-
-        // Make sure that this is actually a child process of the invoker.
-        if jailed.ppid != cur_pid {
-            return Err(Error::new(EACCES));
-        }
-
-        jailed.supervised = true;
-    }
-
-    let current = try!(contexts.current_mut());
-
-    let fd = current.next_fd();
-
-    (unsafe { &mut *current.files.get() }).push(ContextFile {
-        fd: fd,
-        resource: box SupervisorResource::new(pid),
-    });
-
-    Ok(fd)
 }

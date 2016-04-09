@@ -9,6 +9,7 @@ pub use self::time::*;
 
 use arch::regs::Regs;
 use arch::context::context_switch;
+use system::scheme::Packet;
 
 pub mod debug;
 pub mod execute;
@@ -17,26 +18,42 @@ pub mod memory;
 pub mod process;
 pub mod time;
 
-pub fn syscall_handle(regs: &mut Regs) {
-    {
-        let mut contexts = ::env().contexts.lock();
-        if let Ok(cur) = contexts.current_mut() {
-            if cur.supervised {
-                // Block the process.
-                cur.blocked_syscall = true;
-                cur.blocked = true;
-                // Clear the timer.
-                cur.wake = None;
-
-                loop {
-                    unsafe { context_switch() };
+fn supervise_return(regs: &mut Regs, ax: usize) {
+    loop {
+        {
+            // Have to acquire cur pointer on each iteration so that we know it is valid
+            // The context array can be reallocated
+            let mut contexts = ::env().contexts.lock();
+            if let Ok(cur) = contexts.current_mut() {
+                if cur.supervised {
+                    if let Some(ref mut supervised_resource) = cur.supervised_resource {
+                        let packet = Packet {
+                            id: ax,
+                            a: regs.ax,
+                            b: regs.bx,
+                            c: regs.cx,
+                            d: regs.dx
+                        };
+                        supervised_resource.write(&packet).unwrap(); //TODO: AAAAAAAAAAAAAAAAA
+                        regs.ax = ax;
+                        return;
+                    } else {
+                        // Block the process until a supervisor attaches
+                        cur.blocked = true;
+                    }
+                } else {
+                    regs.ax = ax;
+                    return;
                 }
             }
         }
-    }
 
-    //debugln!("{:X}: {} {:X} {:X} {:X}", regs.ip, regs.ax, regs.bx, regs.cx, regs.dx);
-    regs.ax = Error::mux(match regs.ax {
+        unsafe { context_switch() };
+    }
+}
+
+pub fn syscall_handle(regs: &mut Regs) {
+    let ax = Error::mux(match regs.ax {
         // Redox
         SYS_DEBUG => do_sys_debug(regs.bx as *const u8, regs.cx),
         SYS_SUPERVISE => do_sys_supervise(regs.bx),
@@ -72,5 +89,6 @@ pub fn syscall_handle(regs: &mut Regs) {
 
         _ => Err(Error::new(ENOSYS)),
     });
-    //debugln!("={:X}", regs.ax);
+
+    supervise_return(regs, ax);
 }

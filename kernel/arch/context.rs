@@ -63,6 +63,24 @@ impl ContextManager {
         self.get_mut(i)
     }
 
+    pub fn find(&self, pid: usize) -> Result<&Box<Context>> {
+        for context in self.inner.iter() {
+            if context.pid == pid {
+                return Ok(context);
+            }
+        }
+        Err(Error::new(ESRCH))
+    }
+
+    pub fn find_mut(&mut self, pid: usize) -> Result<&mut Box<Context>> {
+        for mut context in self.inner.iter_mut() {
+            if context.pid == pid {
+                return Ok(context);
+            }
+        }
+        Err(Error::new(ESRCH))
+    }
+
     pub fn iter(&self) -> Iter<Box<Context>> {
         self.inner.iter()
     }
@@ -72,19 +90,11 @@ impl ContextManager {
     }
 
     pub fn get(&self, i: usize) -> Result<&Box<Context>> {
-        if self.enabled {
-            self.inner.get(i).ok_or(Error::new(ESRCH))
-        } else{
-            Err(Error::new(ESRCH))
-        }
+        self.inner.get(i).ok_or(Error::new(ESRCH))
     }
 
     pub fn get_mut(&mut self, i: usize) -> Result<&mut Box<Context>> {
-        if self.enabled {
-            self.inner.get_mut(i).ok_or(Error::new(ESRCH))
-        } else{
-            Err(Error::new(ESRCH))
-        }
+        self.inner.get_mut(i).ok_or(Error::new(ESRCH))
     }
 
     pub fn len(&self) -> usize {
@@ -233,7 +243,7 @@ pub unsafe fn context_clone(regs: &Regs) -> Result<usize> {
                 wake: None,
 
                 supervised: flags & CLONE_SUPERVISE == CLONE_SUPERVISE,
-                blocked_syscall: false,
+                supervised_resource: None,
 
                 kernel_stack: kernel_stack,
                 regs: kernel_regs,
@@ -585,10 +595,8 @@ pub struct Context {
     /// i.e., will the syscalls made by this process block the process until handled by
     /// a supervisor?
     pub supervised: bool,
-    /// Is this process currently blocked by a syscall?
-    ///
-    /// This means that the process is waiting for the superviser to handle the syscall.
-    pub blocked_syscall: bool,
+    /// A resource representing the supervisor, through which all syscalls must travel
+    pub supervised_resource: Option<Box<Resource>>,
 
     // These members control the stack and registers and are unique to each context {
     // The kernel stack
@@ -669,7 +677,7 @@ impl Context {
             wake: None,
 
             supervised: false,
-            blocked_syscall: false,
+            supervised_resource: None,
 
             kernel_stack: 0,
             regs: Regs::default(),
@@ -710,7 +718,7 @@ impl Context {
             wake: None,
 
             supervised: false,
-            blocked_syscall: false,
+            supervised_resource: None,
 
             kernel_stack: kernel_stack,
             regs: regs,

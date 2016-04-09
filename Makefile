@@ -198,6 +198,7 @@ extrautils: \
 	filesystem/bin/less \
 	filesystem/bin/mtxt \
 	filesystem/bin/rem \
+	filesystem/bin/strace \
 	filesystem/bin/wget
 
 filesystem/bin/%: crates/games/src/%/main.rs crates/games/src/%/*.rs $(BUILD)/libextra.rlib $(BUILD)/libtermion.rlib

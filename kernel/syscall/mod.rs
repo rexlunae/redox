@@ -47,12 +47,17 @@ fn supervise_return(regs: &mut Regs, ax: usize) {
                 }
             }
         }
-
-        unsafe { context_switch() };
     }
 }
 
 pub fn syscall_handle(regs: &mut Regs) {
+    {
+        let mut contexts = ::env().contexts.lock();
+        if let Ok(cur) = contexts.current_mut() {
+            cur.current_syscall = Some((regs.ip, regs.ax, regs.bx, regs.cx, regs.dx));
+        }
+    }
+
     let ax = Error::mux(match regs.ax {
         // Redox
         SYS_DEBUG => do_sys_debug(regs.bx as *const u8, regs.cx),
@@ -89,6 +94,13 @@ pub fn syscall_handle(regs: &mut Regs) {
 
         _ => Err(Error::new(ENOSYS)),
     });
+
+    {
+        let mut contexts = ::env().contexts.lock();
+        if let Ok(cur) = contexts.current_mut() {
+            cur.current_syscall = None;
+        }
+    }
 
     supervise_return(regs, ax);
 }

@@ -8,8 +8,6 @@
 #![feature(collections)]
 #![feature(const_fn)]
 #![feature(core_intrinsics)]
-#![feature(core_str_ext)]
-#![feature(core_slice_ext)]
 #![feature(fnbox)]
 #![feature(fundamental)]
 #![feature(lang_items)]
@@ -22,11 +20,14 @@
 #![no_std]
 
 #![allow(deprecated)]
-#![deny(warnings)]
+//#![deny(warnings)]
 //#![deny(missing_docs)]
 
 #[macro_use]
 extern crate alloc;
+
+#[macro_use]
+extern crate bitflags;
 
 #[macro_use]
 extern crate collections;
@@ -46,8 +47,7 @@ use arch::tss::Tss;
 use collections::Vec;
 use collections::string::ToString;
 
-use core::{ptr, mem, usize};
-use core::slice::SliceExt;
+use core::{mem, usize};
 
 use common::time::Duration;
 
@@ -63,14 +63,17 @@ use graphics::display;
 
 use network::schemes::{ArpScheme, EthernetScheme, IcmpScheme, IpScheme, TcpScheme, UdpScheme};
 
-use schemes::context::*;
-use schemes::debug::*;
-use schemes::display::*;
-use schemes::env::*;
-use schemes::initfs::*;
-use schemes::interrupt::*;
-use schemes::memory::*;
-use schemes::test::*;
+use schemes::context::ContextScheme;
+use schemes::debug::DebugScheme;
+use schemes::disk::DiskScheme;
+use schemes::display::DisplayScheme;
+use schemes::env::EnvScheme;
+//use schemes::file::FileScheme;
+use schemes::initfs::InitFsScheme;
+use schemes::interrupt::InterruptScheme;
+use schemes::memory::MemoryScheme;
+use schemes::syslog::SyslogScheme;
+use schemes::test::TestScheme;
 
 use syscall::execute::execute;
 use syscall::{do_sys_chdir, do_sys_exit, do_sys_open, syscall_handle};
@@ -82,6 +85,11 @@ pub use externs::*;
 /// This module implements basic primitives for kernel space. They are not exposed to userspace.
 #[macro_use]
 pub mod common;
+/// Logging.
+///
+/// This module contains the `syslog` function and the different log levels.
+#[macro_use]
+pub mod logging;
 /// Macros used in the kernel.
 #[macro_use]
 pub mod macros;
@@ -259,7 +267,7 @@ static BSS_TEST_NONZERO: usize = !0;
 /// This will initialize the kernel: the environment, the memory allocator, the memory pager, PCI and so
 /// on.
 ///
-/// Note that this will not start the even loop.
+/// Note that this will not start the event loop.
 unsafe fn init(tss_data: usize) {
 
     // Test
@@ -347,7 +355,13 @@ unsafe fn init(tss_data: usize) {
 
             env.console.lock().draw = true;
 
-            debugln!("Redox {} bits", mem::size_of::<usize>() * 8);
+            debugln!("\x1B[1mRedox {} bits\x1B[0m", mem::size_of::<usize>() * 8);
+            debugln!("  * text={:X}:{:X} rodata={:X}:{:X}",
+                    & __text_start as *const u8 as usize, & __text_end as *const u8 as usize,
+                    & __rodata_start as *const u8 as usize, & __rodata_end as *const u8 as usize);
+            debugln!("  * data={:X}:{:X} bss={:X}:{:X}",
+                    & __data_start as *const u8 as usize, & __data_end as *const u8 as usize,
+                    & __bss_start as *const u8 as usize, & __bss_end as *const u8 as usize);
 
             if let Some(acpi) = Acpi::new() {
                 env.schemes.lock().push(acpi);
@@ -367,7 +381,19 @@ unsafe fn init(tss_data: usize) {
             env.schemes.lock().push(box EnvScheme);
             env.schemes.lock().push(box InterruptScheme);
             env.schemes.lock().push(box MemoryScheme);
+            env.schemes.lock().push(box SyslogScheme);
             env.schemes.lock().push(box TestScheme);
+
+            //TODO: Do not do this! Find a better way
+            let mut disks = Vec::new();
+            disks.append(&mut env.disks.lock());
+            env.schemes.lock().push(DiskScheme::new(disks));
+
+            /*
+            let mut nics = Vec::new();
+            nics.append(&mut env.nics.lock());
+            env.schemes.lock().push(NetworkScheme::new(nics));
+            */
 
             env.schemes.lock().push(box EthernetScheme);
             //env.schemes.lock().push(box ArpScheme);
@@ -393,7 +419,7 @@ unsafe fn init(tss_data: usize) {
             Context::spawn("kinit".to_string(),
             box move || {
                 {
-                    let wd_c = "file:/\0";
+                    let wd_c = "initfs:/\0";
                     do_sys_chdir(wd_c.as_ptr()).unwrap();
 
                     let stdio_c = "debug:\0";
@@ -401,16 +427,20 @@ unsafe fn init(tss_data: usize) {
                     do_sys_open(stdio_c.as_ptr(), 0).unwrap();
                     do_sys_open(stdio_c.as_ptr(), 0).unwrap();
 
+                    let mut contexts = ::env().contexts.lock();
+                    let current = contexts.current_mut().unwrap();
+
+                    current.set_env_var("PATH", "file:/bin").unwrap();
+
                     if let Some(ref display) = ::env().console.lock().display {
-                        let mut contexts = ::env().contexts.lock();
-                        let current = contexts.current_mut().unwrap();
                         current.set_env_var("COLUMNS", &format!("{}", display.width/8)).unwrap();
                         current.set_env_var("LINES", &format!("{}", display.height/16)).unwrap();
                     }
                 }
 
-                if let Err(err) = execute(vec!["init".to_string()]) {
-                    debugln!("INIT: Failed to execute: {}", err);
+                syslog_info!("The kernel has finished booting. Running /bin/init");
+                if let Err(err) = execute(vec!["initfs:/bin/init".to_string()]) {
+                    debugln!("kernel: init: failed to execute: {}", err);
                 }
             });
         },
@@ -429,6 +459,10 @@ pub extern "cdecl" fn kernel(interrupt: usize, mut regs: &mut Regs) {
                 let contexts = ::env().contexts.lock();
                 if let Ok(context) = contexts.current() {
                     debugln!("PID {}: {}", context.pid, context.name);
+
+                    if let Some(current_syscall) = context.current_syscall {
+                        debugln!("  SYS {:X}: {} {:X} {:X} {:X}", current_syscall.0, current_syscall.1, current_syscall.2, current_syscall.3, current_syscall.4);
+                    }
                 }
             }
 
@@ -458,14 +492,28 @@ pub extern "cdecl" fn kernel(interrupt: usize, mut regs: &mut Regs) {
             }
             debugln!("    FSW: {:08X}    FCW: {:08X}", fsw, fcw);
 
-            let sp = regs.sp as *const u32;
-            for y in -15..16 {
-                debug!("    {:>3}:", y * 8 * 4);
-                for x in 0..8 {
-                    debug!(" {:08X}", unsafe { ptr::read(sp.offset(-(x + y * 8))) });
+            /* TODO: Stack dump
+            {
+                let contexts = ::env().contexts.lock();
+                if let Ok(context) = contexts.current() {
+                    let sp = regs.sp as *const usize;
+                    for y in -15..16 {
+                        debug!("    {:>3}:", y * 8 * 4);
+                        for x in 0..8 {
+                            let p = unsafe { sp.offset(-(x + y * 8)) };
+                            if let Ok(_) = context.translate(p as usize, 1) {
+                                debug!(" {:08X}", unsafe { ptr::read(p) });
+                            } else if context.kernel_stack > 0 && (p as usize) >= context.kernel_stack && (p as usize) < context.kernel_stack + CONTEXT_STACK_SIZE {
+                                debug!(" {:08X}", unsafe { ptr::read(p) });
+                            } else {
+                                debug!(" ????????");
+                            }
+                        }
+                        debug!("\n");
+                    }
                 }
-                debug!("\n");
             }
+            */
         })
     };
 
@@ -474,7 +522,8 @@ pub extern "cdecl" fn kernel(interrupt: usize, mut regs: &mut Regs) {
             exception_inner!($name);
 
             loop {
-                do_sys_exit(usize::MAX);
+                unsafe { asm!("cli ; hlt" : : : : "intel", "volatile"); }
+                //do_sys_exit(usize::MAX);
             }
         })
     };
@@ -493,12 +542,13 @@ pub extern "cdecl" fn kernel(interrupt: usize, mut regs: &mut Regs) {
             debugln!("    ERR: {:08X}", error);
 
             loop {
-                do_sys_exit(usize::MAX);
+                unsafe { asm!("cli ; hlt" : : : : "intel", "volatile"); }
+                //do_sys_exit(usize::MAX);
             }
         })
     };
 
-    //Do not catch init interrupt
+    // Do not catch init interrupt
     if interrupt < 0xFF {
         env().interrupts.lock()[interrupt as usize] += 1;
     }

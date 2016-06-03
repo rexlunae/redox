@@ -1,17 +1,17 @@
 use alloc::boxed::Box;
 
-use arch::intex::Intex;
-
 use collections::string::{String, ToString};
 use collections::vec::Vec;
-
-use common::event::Event;
-use common::time::Duration;
+use collections::vec_deque::VecDeque;
 
 use arch::context::ContextManager;
-
+use arch::intex::Intex;
+use common::event::Event;
+use common::time::Duration;
+use disk::Disk;
+use network::Nic;
 use fs::{KScheme, Resource, Scheme, VecResource, Url};
-
+use logging::LogLevel;
 use sync::WaitQueue;
 
 use system::error::{Error, Result, ENOENT, EEXIST};
@@ -34,8 +34,14 @@ pub struct Environment {
 
     /// Default console
     pub console: Intex<Console>,
+    /// Disks
+    pub disks: Intex<Vec<Box<Disk>>>,
+    /// Network interfaces
+    pub nics: Intex<Vec<Box<Nic>>>,
     /// Pending events
     pub events: WaitQueue<Event>,
+    /// Kernel logs
+    pub logs: Intex<VecDeque<(Duration, LogLevel, String)>>,
     /// Schemes
     pub schemes: Intex<Vec<Box<KScheme>>>,
 
@@ -52,7 +58,10 @@ impl Environment {
             clock_monotonic: Intex::new(Duration::new(0, 0)),
 
             console: Intex::new(Console::new()),
+            disks: Intex::new(Vec::new()),
+            nics: Intex::new(Vec::new()),
             events: WaitQueue::new(),
+            logs: Intex::new(VecDeque::new()),
             schemes: Intex::new(Vec::new()),
 
             interrupts: Intex::new([0; 256]),

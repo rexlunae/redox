@@ -49,12 +49,33 @@
 [submodule "crates/pixelcannon"]
 	path = crates/pixelcannon
 	url = https://github.com/jackpot51/pixelcannon.git
-[submodule "crates/malloc"]
-	path = crates/malloc
-	url = https://github.com/redox-os/libmalloc.git
 [submodule "crates/tetrahedrane"]
 	path = crates/tetrahedrane
 	url = https://github.com/ca1ek/tetrahedrane.git
 [submodule "crates/rusttype"]
 	path = crates/rusttype
 	url = https://github.com/jackpot51/rusttype.git
+[submodule "crates/ralloc"]
+	path = crates/ralloc
+	url = https://github.com/redox-os/ralloc.git
+[submodule "crates/walkdir"]
+	path = crates/walkdir
+	url = https://github.com/redox-os/walkdir.git
+[submodule "crates/bitflags"]
+	path = crates/bitflags
+	url = https://github.com/rust-lang-nursery/bitflags.git
+[submodule "crates/libz-sys"]
+	path = crates/libz-sys
+	url = https://github.com/redox-os/libz-sys.git
+[submodule "crates/liblibc"]
+	path = crates/liblibc
+	url = https://github.com/redox-os/liblibc.git
+[submodule "crates/rust-png"]
+	path = crates/rust-png
+	url = https://github.com/redox-os/rust-png.git
+[submodule "crates/orbimage"]
+	path = crates/orbimage
+	url = https://github.com/redox-os/orbimage.git
+[submodule "crates/orbfont"]
+	path = crates/orbfont
+	url = https://github.com/redox-os/orbfont.git

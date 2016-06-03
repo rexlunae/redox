@@ -1,6 +1,9 @@
+#![deny(warnings)]
 #![feature(iter_arith)]
 
 extern crate orbclient;
+extern crate orbimage;
+extern crate orbfont;
 
 use std::{cmp, env};
 use std::collections::BTreeMap;
@@ -9,11 +12,13 @@ use std::process::Command;
 use std::string::{String, ToString};
 use std::vec::Vec;
 
-use orbclient::{event, BmpFile, Color, EventOption, MouseEvent, Window};
+use orbclient::{event, Color, EventOption, MouseEvent, Window};
+use orbimage::Image;
+use orbfont::Font;
 
 struct FileType {
     description: &'static str,
-    icon: BmpFile,
+    icon: Image,
 }
 
 
@@ -38,6 +43,7 @@ impl FileTypesInfo {
         file_types.insert("bin",
                           FileType::new("Executable", "application-x-executable"));
         file_types.insert("bmp", FileType::new("Bitmap Image", "image-x-generic"));
+        file_types.insert("png", FileType::new("PNG Image", "image-x-generic"));
         file_types.insert("rs", FileType::new("Rust source code", "text-x-makefile"));
         file_types.insert("crate",
                           FileType::new("Rust crate", "application-x-archive"));
@@ -77,7 +83,7 @@ impl FileTypesInfo {
         }
     }
 
-    pub fn icon_for(&self, file_name: &str) -> &BmpFile {
+    pub fn icon_for(&self, file_name: &str) -> &Image {
         if file_name.ends_with('/') {
             &self.file_types["/"].icon
         } else {
@@ -105,11 +111,18 @@ pub struct FileManager {
     file_sizes: Vec<String>,
     selected: isize,
     last_mouse_event: MouseEvent,
-    window: Box<Window>,
+    window: Window,
+    font: Font,
 }
 
-fn load_icon(path: &str) -> BmpFile {
-    BmpFile::from_path(&format!("/ui/mimetypes/{}.bmp", path))
+fn load_icon(path: &str) -> Image {
+    match Image::from_path(&format!("/ui/mimetypes/{}.bmp", path)) {
+        Ok(icon) => icon,
+        Err(err) => {
+            println!("Failed to load icon {}: {}", path, err);
+            Image::new(32, 32)
+        }
+    }
 }
 
 impl FileManager {
@@ -127,6 +140,7 @@ impl FileManager {
                 right_button: false,
             },
             window: Window::new(-1, -1, 0, 0, "").unwrap(),
+            font: Font::find(None, None, None).unwrap()
         }
     }
 
@@ -165,71 +179,17 @@ impl FileManager {
             }
 
             let icon = self.file_types_info.icon_for(&file_name);
-            self.window.image(0,
-                              32 * row as i32,
-                              icon.width() as u32,
-                              icon.height() as u32,
-                              &icon);
+            icon.draw(&mut self.window, 0, 32 * row as i32);
 
             let mut col = 0;
-            for c in file_name.chars() {
-                if c == '\n' {
-                    col = 0;
-                    row += 1;
-                } else if c == '\t' {
-                    col += 8 - col % 8;
-                } else {
-                    if col < self.window.width() / 8 && row < self.window.height() / 32 {
-                        self.window.char(8 * col as i32 + 40, 32 * row as i32 + 8, c, Color::rgb(0, 0, 0));
-                        col += 1;
-                    }
-                }
-                if col >= self.window.width() / 8 {
-                    col = 0;
-                    row += 1;
-                }
-            }
+            self.font.render(file_name, 16.0).draw(&mut self.window, 8 * col as i32 + 40, 32 * row as i32 + 8, Color::rgb(0, 0, 0));
 
             col = column[0] as u32;
-
-            for c in file_size.chars() {
-                if c == '\n' {
-                    col = 0;
-                    row += 1;
-                } else if c == '\t' {
-                    col += 8 - col % 8;
-                } else {
-                    if col < self.window.width() / 8 && row < self.window.height() / 32 {
-                        self.window.char(8 * col as i32 + 40, 32 * row as i32 + 8, c, Color::rgb(0, 0, 0));
-                        col += 1;
-                    }
-                }
-                if col >= self.window.width() / 8 {
-                    col = 0;
-                    row += 1;
-                }
-            }
+            self.font.render(file_size, 16.0).draw(&mut self.window, 8 * col as i32 + 40, 32 * row as i32 + 8, Color::rgb(0, 0, 0));
 
             col = column[1] as u32;
-
             let description = self.file_types_info.description_for(&file_name);
-            for c in description.chars() {
-                if c == '\n' {
-                    col = 0;
-                    row += 1;
-                } else if c == '\t' {
-                    col += 8 - col % 8;
-                } else {
-                    if col < self.window.width() / 8 && row < self.window.height() / 32 {
-                        self.window.char(8 * col as i32 + 40, 32 * row as i32 + 8, c, Color::rgb(0, 0, 0));
-                        col += 1;
-                    }
-                }
-                if col >= self.window.width() / 8 {
-                    col = 0;
-                    row += 1;
-                }
-            }
+            self.font.render(&description, 16.0).draw(&mut self.window, 8 * col as i32 + 40, 32 * row as i32 + 8, Color::rgb(0, 0, 0));
 
             row += 1;
             i += 1;
@@ -344,7 +304,7 @@ impl FileManager {
 
         // TODO: HACK ALERT - should use resize whenver that gets added
         self.window.sync_path();
-        
+
         let x = self.window.x();
         let y = self.window.y();
         let w = width.iter().sum::<usize>() as u32;
@@ -494,7 +454,7 @@ impl FileManager {
                         self.set_path(&current_path);
                     }
                     FileManagerCommand::Execute(cmd) => {
-                        Command::new("launcher").arg(&(current_path.clone() + &cmd)).spawn();
+                        Command::new("launcher").arg(&(current_path.clone() + &cmd)).spawn().unwrap();
                     },
                     FileManagerCommand::Redraw => redraw = true,
                     FileManagerCommand::Quit => break 'events,

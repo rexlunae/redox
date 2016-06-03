@@ -1,10 +1,8 @@
-use core::ops::Deref;
 use core_collections::borrow::ToOwned;
-use io::{self, Read, Error, Result, Write, Seek, SeekFrom};
+use io::{self, BufRead, BufReader, Read, Error, Result, Write, Seek, SeekFrom};
 use os::unix::io::{AsRawFd, FromRawFd, IntoRawFd, RawFd};
 use mem;
 use path::{PathBuf, Path};
-use str;
 use string::String;
 use sys_common::AsInner;
 use vec::Vec;
@@ -104,8 +102,9 @@ impl Write for File {
         sys_write(self.fd, buf).map_err(|x| Error::from_sys(x))
     }
 
-    // TODO buffered fs
-    fn flush(&mut self) -> Result<()> { Ok(()) }
+    fn flush(&mut self) -> Result<()> {
+        sys_fsync(self.fd).and(Ok(())).map_err(|x| Error::from_sys(x))
+    }
 }
 
 impl Seek for File {
@@ -127,6 +126,7 @@ impl Drop for File {
     }
 }
 
+#[derive(Copy, Clone, Eq, PartialEq)]
 pub struct FileType {
     dir: bool,
     file: bool,
@@ -139,6 +139,10 @@ impl FileType {
 
     pub fn is_file(&self) -> bool {
         self.file
+    }
+
+    pub fn is_symlink(&self) -> bool {
+        false
     }
 }
 
@@ -244,14 +248,14 @@ impl Metadata {
 }
 
 pub struct DirEntry {
-    path: String,
+    path: PathBuf,
     dir: bool,
     file: bool,
 }
 
 impl DirEntry {
     pub fn file_name(&self) -> &Path {
-        unsafe { mem::transmute(self.path.deref()) }
+        unsafe { mem::transmute(self.path.file_name().unwrap().to_str().unwrap()) }
     }
 
     pub fn file_type(&self) -> Result<FileType> {
@@ -261,45 +265,44 @@ impl DirEntry {
         })
     }
 
+    pub fn metadata(&self) -> Result<Metadata> {
+        metadata(&self.path)
+    }
+
     pub fn path(&self) -> PathBuf {
-        PathBuf::from(self.path.clone())
+        self.path.clone()
     }
 }
 
 pub struct ReadDir {
-    file: File,
+    path: PathBuf,
+    file: BufReader<File>,
 }
 
 impl Iterator for ReadDir {
     type Item = Result<DirEntry>;
     fn next(&mut self) -> Option<Result<DirEntry>> {
-        let mut path = String::new();
-        let mut buf: [u8; 1] = [0; 1];
-        loop {
-            match self.file.read(&mut buf) {
-                Ok(0) => break,
-                Ok(count) => {
-                    if buf[0] == 10 {
-                        break;
-                    } else {
-                        path.push_str(unsafe { str::from_utf8_unchecked(&buf[..count]) });
-                    }
+        let mut name = String::new();
+        match self.file.read_line(&mut name) {
+            Ok(0) => None,
+            Ok(_) => {
+                if name.ends_with('\n') {
+                    name.pop();
                 }
-                Err(_err) => break,
-            }
-        }
-        if path.is_empty() {
-            None
-        } else {
-            let dir = path.ends_with('/');
-            if dir {
-                path.pop();
-            }
-            Some(Ok(DirEntry {
-                path: path,
-                dir: dir,
-                file: !dir,
-            }))
+                let dir = name.ends_with('/');
+                if dir {
+                    name.pop();
+                }
+
+                let mut path = self.path.clone();
+                path.push(name);
+                Some(Ok(DirEntry {
+                    path: path,
+                    dir: dir,
+                    file: !dir,
+                }))
+            },
+            Err(err) => Some(Err(err))
         }
     }
 }
@@ -317,6 +320,7 @@ pub fn canonicalize<P: AsRef<Path>>(path: P) -> Result<PathBuf> {
     }
 }
 
+/// Get information about a file
 pub fn metadata<P: AsRef<Path>>(path: P) -> Result<Metadata> {
     let mut stat = Stat {
         st_mode: 0,
@@ -333,6 +337,12 @@ pub fn metadata<P: AsRef<Path>>(path: P) -> Result<Metadata> {
     })
 }
 
+/// Get information about a file without following symlinks
+/// Warning: Redox does not currently support symlinks
+pub fn symlink_metadata<P: AsRef<Path>>(path: P) -> Result<Metadata> {
+    metadata(path)
+}
+
 /// Create a new directory, using a path
 /// The default mode of the directory is 744
 pub fn create_dir<P: AsRef<Path>>(path: P) -> Result<()> {
@@ -344,21 +354,26 @@ pub fn create_dir<P: AsRef<Path>>(path: P) -> Result<()> {
     }
 }
 
+/// Copy the contents of one file to another
 pub fn copy<P: AsRef<Path>, Q: AsRef<Path>>(from: P, to: Q) -> Result<u64> {
     let mut infile = try!(File::open(from));
     let mut outfile = try!(File::create(to));
     io::copy(&mut infile, &mut outfile)
 }
 
+/// Rename a file or directory to a new name
 pub fn rename<P: AsRef<Path>, Q: AsRef<Path>>(from: P, to: Q) -> Result<()> {
     try!(copy(Path::new(from.as_ref()), to));
     remove_file(from)
 }
 
+/// Return an iterator over the entries within a directory
 pub fn read_dir<P: AsRef<Path>>(path: P) -> Result<ReadDir> {
-    File::open(path).map(|file| ReadDir { file: file })
+    let path_buf = path.as_ref().to_owned();
+    File::open(&path_buf).map(|file| ReadDir { path: path_buf, file: BufReader::new(file) })
 }
 
+/// Removes an existing, empty directory
 pub fn remove_dir<P: AsRef<Path>>(path: P) -> Result<()> {
     let path_str = path.as_ref().as_os_str().as_inner();
     let mut path_c = path_str.to_owned();
@@ -368,6 +383,7 @@ pub fn remove_dir<P: AsRef<Path>>(path: P) -> Result<()> {
     }.map_err(|x| Error::from_sys(x))
 }
 
+/// Removes a file from the filesystem
 pub fn remove_file<P: AsRef<Path>>(path: P) -> Result<()> {
     let path_str = path.as_ref().as_os_str().as_inner();
     let mut path_c = path_str.to_owned();

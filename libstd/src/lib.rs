@@ -8,7 +8,6 @@
 #![crate_name="std"]
 #![crate_type="rlib"]
 #![feature(alloc)]
-#![feature(allocator)]
 #![feature(allow_internal_unstable)]
 #![feature(asm)]
 #![feature(associated_consts)]
@@ -18,7 +17,6 @@
 #![feature(collections)]
 #![feature(collections_bound)]
 #![feature(const_fn)]
-#![feature(copy_from_slice)]
 #![feature(core_intrinsics)]
 #![feature(core_panic)]
 #![feature(dropck_parametricity)]
@@ -49,6 +47,20 @@
 // TODO
 //#![deny(missing_docs)]
 #![deny(warnings)]
+
+/*TODO
+extern crate ralloc;
+
+#[link(name = "c", kind = "static")]
+extern {
+    fn memcpy(dest: *mut u8, src: *const u8, n: usize) -> *mut u8;
+    fn memmove(dest: *mut u8, src: *const u8, n: usize) -> *mut u8;
+    fn memset(s: *mut u8, c: i32, n: usize) -> *mut u8;
+    fn memcmp(s1: *const u8, s2: *const u8, n: usize) -> i32;
+}
+*/
+
+extern crate alloc_malloc;
 
 // STD COPY {
 // We want to reexport a few macros from core but libcore has already been
@@ -105,7 +117,7 @@ pub use rustc_unicode::char;
 
 // Exported macros
 
-    #[macro_use]
+#[macro_use]
 pub mod macros;
 
 // TODO mod rtdeps;
@@ -184,8 +196,6 @@ pub use core_rand as rand;
 // } STD COPY
 
 pub use rand_old::*;
-
-pub mod alloc_system;
 
 pub mod panic;
 

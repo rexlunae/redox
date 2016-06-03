@@ -122,6 +122,8 @@ pub fn do_sys_supervise(pid: usize) -> Result<usize> {
     let mut contexts = ::env().contexts.lock();
     let cur_pid = try!(contexts.current_mut()).pid;
 
+    let procc;
+
     {
         let jailed = try!(contexts.find_mut(pid));
 
@@ -131,6 +133,8 @@ pub fn do_sys_supervise(pid: usize) -> Result<usize> {
         }
 
         jailed.supervised = true;
+
+        procc = &mut **jailed as *mut _;
     }
 
     let current = try!(contexts.current_mut());

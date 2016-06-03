@@ -17,8 +17,11 @@ bx_enh_dbg.ini
 libc/build/
 setup/rust/
 build
+filesystem/apps/pixelcannon/assets/
 filesystem/bin/
-initfs/
+filesystem/ref/
+initfs/bin/
+initfs/build/
 target
 *.swp
 doc

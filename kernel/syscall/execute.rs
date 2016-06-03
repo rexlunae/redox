@@ -14,11 +14,11 @@ use common::slice::GetSlice;
 
 use core::cell::UnsafeCell;
 use core::ops::DerefMut;
-use core::{mem, ptr, str};
+use core::{mem, ptr, slice, str};
 
 use fs::Url;
 
-use system::error::{Error, Result, ENOEXEC};
+use system::error::{Error, Result, ENOEXEC, ENOMEM};
 
 pub fn execute_thread(context_ptr: *mut Context, entry: usize, mut args: Vec<String>) -> ! {
     Context::spawn("kexec".to_string(), box move || {
@@ -109,29 +109,52 @@ pub fn execute(mut args: Vec<String>) -> Result<usize> {
     let mut vec: Vec<u8> = Vec::new();
 
     let path = current.canonicalize(args.get(0).map_or("", |p| &p));
-    let mut url = try!(Url::from_str(&path)).to_cow();
+    let url = try!(Url::from_str(&path));
     {
-        let mut resource = if let Ok(resource) = url.as_url().open() {
-            resource
-        } else {
-            let path = "file:/bin/".to_string() + args.get(0).map_or("", |p| &p);
-            url = try!(Url::from_str(&path)).to_owned().into_cow();
-            try!(url.as_url().open())
-        };
+        let mut resource = try!(url.open());
 
-        'reading: loop {
-            let mut bytes = [0; 4096];
-            match resource.read(&mut bytes) {
-                Ok(0) => break 'reading,
-                Ok(count) => vec.extend_from_slice(bytes.get_slice(.. count)),
-                Err(err) => return Err(err)
+        // Hack to allow file scheme to find memory in context's memory space
+        unsafe {
+            let heap = &mut *current.heap.get();
+
+            let virtual_size = 65536;
+            let virtual_address = heap.next_mem();
+
+            let physical_address = memory::alloc_aligned(virtual_size, 4096);
+            if physical_address == 0 {
+                return Err(Error::new(ENOMEM));
             }
+
+            let mut memory = ContextMemory {
+                physical_address: physical_address,
+                virtual_address: virtual_address,
+                virtual_size: virtual_size,
+                writeable: true,
+                allocated: true,
+            };
+
+            memory.map();
+
+            heap.memory.push(memory);
+
+            'reading: loop {
+                let mut bytes = slice::from_raw_parts_mut(virtual_address as *mut u8, virtual_size);
+                match resource.read(&mut bytes) {
+                    Ok(0) => break 'reading,
+                    Ok(count) => vec.extend_from_slice(bytes.get_slice(.. count)),
+                    Err(err) => return Err(err)
+                }
+            }
+
+            let mut memory = heap.memory.pop().unwrap();
+
+            memory.unmap();
         }
     }
 
     if vec.starts_with(b"#!") {
         if let Some(mut arg) = args.get_mut(0) {
-            *arg = url.as_url().to_string();
+            *arg = url.to_string();
         }
 
         let line = unsafe { str::from_utf8_unchecked(&vec[2..]) }.lines().next().unwrap_or("");
@@ -184,7 +207,7 @@ pub fn execute(mut args: Vec<String>) -> Result<usize> {
 
                     //debugln!("{}: {}: execute {}", context.pid, context.name, url.string);
 
-                    context.name = url.as_url().to_string();
+                    context.name = url.to_string();
                     context.cwd = Arc::new(UnsafeCell::new(unsafe { (*context.cwd.get()).clone() }));
 
                     unsafe { context.unmap() };

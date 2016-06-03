@@ -178,7 +178,7 @@ pub unsafe fn context_switch() {
                         if next.kernel_stack > 0 {
                             tss.sp0 = next.kernel_stack + CONTEXT_STACK_SIZE - 128;
                         } else {
-                            tss.sp0 = 0x200000 - 128;
+                            tss.sp0 = 0x800000 - 128;
                         }
                     }
 
@@ -244,6 +244,8 @@ pub unsafe fn context_clone(regs: &Regs) -> Result<usize> {
 
                 supervised: flags & CLONE_SUPERVISE == CLONE_SUPERVISE,
                 supervised_resource: None,
+                blocked_syscall: false,
+                current_syscall: None,
 
                 kernel_stack: kernel_stack,
                 regs: kernel_regs,
@@ -512,7 +514,7 @@ impl ContextZone {
     /// Translate to physical if a ptr is inside of the mapped memory
     pub fn translate(&self, ptr: usize, len: usize) -> Option<usize> {
         for mem in self.memory.iter() {
-            if ptr >= mem.virtual_address && ptr + len < mem.virtual_address + mem.virtual_size {
+            if ptr >= mem.virtual_address && ptr + len <= mem.virtual_address + mem.virtual_size {
                 return Some(ptr - mem.virtual_address + mem.physical_address);
             }
         }
@@ -597,6 +599,12 @@ pub struct Context {
     pub supervised: bool,
     /// A resource representing the supervisor, through which all syscalls must travel
     pub supervised_resource: Option<Box<Resource>>,
+    /// Is this process currently blocked by a syscall?
+    ///
+    /// This means that the process is waiting for the superviser to handle the syscall.
+    pub blocked_syscall: bool,
+    /// The current syscall
+    pub current_syscall: Option<(usize, usize, usize, usize, usize)>,
 
     // These members control the stack and registers and are unique to each context {
     // The kernel stack
@@ -678,6 +686,8 @@ impl Context {
 
             supervised: false,
             supervised_resource: None,
+            blocked_syscall: false,
+            current_syscall: None,
 
             kernel_stack: 0,
             regs: Regs::default(),
@@ -719,6 +729,8 @@ impl Context {
 
             supervised: false,
             supervised_resource: None,
+            blocked_syscall: false,
+            current_syscall: None,
 
             kernel_stack: kernel_stack,
             regs: regs,

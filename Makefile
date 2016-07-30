@@ -7,18 +7,16 @@ QEMU?=qemu-system-$(ARCH)
 
 CARGO=CARGO_TARGET_DIR=build RUSTC="./rustc-$(ARCH).sh" cargo rustc
 CARGOFLAGS=--verbose --target=$(ARCH)-unknown-redox.json -- --cfg redox \
-	-L $(BUILD) \
-	-C no-prepopulate-passes -C no-stack-check -C opt-level=3 \
-	-Z no-landing-pads -Z orbit \
-	-A dead_code
+	-L $(BUILD) -A dead_code \
+	-C panic=abort -C no-prepopulate-passes -C no-stack-check -C opt-level=3 \
+	-Z no-landing-pads -Z orbit
 RUSTC=RUST_BACKTRACE=1 rustc
 RUSTDOC=rustdoc --target=$(ARCH)-unknown-redox.json -L $(BUILD) \
 	--no-defaults --passes collapse-docs --passes unindent-comments
 RUSTCFLAGS=--target=$(ARCH)-unknown-redox.json --cfg redox \
-	-L $(BUILD) \
-	-C no-prepopulate-passes -C no-stack-check -C opt-level=3 \
-	-Z no-landing-pads \
-	-A dead_code
+	-L $(BUILD) -A dead_code \
+	-C panic=abort -C no-prepopulate-passes -C no-stack-check -C opt-level=3 \
+	-Z no-landing-pads
 AS=nasm
 AWK=awk
 BASENAME=basename
@@ -336,7 +334,6 @@ bins: \
 	netutils \
 	drivers \
 	games \
-	filesystem/bin/ansi-test \
 	filesystem/bin/example \
 	filesystem/bin/init \
 	filesystem/bin/launcher \
@@ -345,9 +342,11 @@ bins: \
 	filesystem/bin/play \
 	filesystem/bin/redoxfs-utility \
 	filesystem/bin/screenfetch \
-	filesystem/bin/std-test \
   	filesystem/bin/sh
-	#TODO: binutils	filesystem/bin/zfs
+	#TODO: BINUTILS
+	#TODO: filesystem/bin/ansi-test
+	#TODO: filesystem/bin/std-test
+	#TODO: filesystem/bin/zfs
 
 refs: FORCE
 	mkdir -p filesystem/ref/
@@ -520,10 +519,16 @@ $(BUILD)/librand.rlib: rust/src/librand/lib.rs $(BUILD)/libcore.rlib $(BUILD)/li
 $(BUILD)/liblibc.rlib: crates/liblibc/src/lib.rs $(BUILD)/libcore.rlib
 	$(RUSTC) $(RUSTCFLAGS) -o $@ $< -L native=libc/lib/
 
+$(BUILD)/libpanic_abort.rlib: rust/src/libpanic_abort/lib.rs $(BUILD)/libcore.rlib $(BUILD)/liblibc.rlib
+	$(RUSTC) $(RUSTCFLAGS) --crate-type rlib -o $@ $<
+
+$(BUILD)/libpanic_unwind.rlib: rust/src/libpanic_unwind/lib.rs $(BUILD)/libcore.rlib $(BUILD)/liblibc.rlib $(BUILD)/libunwind.rlib
+	$(RUSTC) $(RUSTCFLAGS) --crate-type rlib -o $@ $<
+
 $(BUILD)/libunwind.rlib: rust/src/libunwind/lib.rs $(BUILD)/libcore.rlib $(BUILD)/liblibc.rlib
 	$(RUSTC) $(RUSTCFLAGS) --crate-type rlib -o $@ $<
 
-$(BUILD)/libstd.rlib: rust/src/libstd/lib.rs $(BUILD)/libcore.rlib $(BUILD)/liblibc.rlib $(BUILD)/liballoc.rlib $(BUILD)/librustc_unicode.rlib $(BUILD)/libcollections.rlib $(BUILD)/librand.rlib $(BUILD)/libunwind.rlib $(BUILD)/libsystem.rlib
+$(BUILD)/libstd.rlib: rust/src/libstd/lib.rs $(BUILD)/libcore.rlib $(BUILD)/liblibc.rlib $(BUILD)/liballoc.rlib $(BUILD)/librustc_unicode.rlib $(BUILD)/libcollections.rlib $(BUILD)/librand.rlib $(BUILD)/libpanic_abort.rlib $(BUILD)/libunwind.rlib $(BUILD)/libsystem.rlib
 	$(RUSTC) $(RUSTCFLAGS) --crate-type rlib -o $@ $<
 
 $(BUILD)/liboldstd.rlib: libstd/src/lib.rs libstd/src/*.rs libstd/src/*/*.rs libstd/src/*/*/*.rs $(BUILD)/libcore.rlib $(BUILD)/libralloc.rlib $(BUILD)/liballoc.rlib $(BUILD)/libcollections.rlib $(BUILD)/librand.rlib $(BUILD)/libsystem.rlib

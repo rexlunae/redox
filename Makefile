@@ -520,10 +520,13 @@ $(BUILD)/librand.rlib: rust/src/librand/lib.rs $(BUILD)/libcore.rlib $(BUILD)/li
 $(BUILD)/liblibc.rlib: crates/liblibc/src/lib.rs $(BUILD)/libcore.rlib
 	$(RUSTC) $(RUSTCFLAGS) -o $@ $< -L native=libc/lib/
 
-$(BUILD)/librealstd.rlib: rust/src/libstd/lib.rs $(BUILD)/libcore.rlib $(BUILD)/liblibc.rlib $(BUILD)/liballoc.rlib $(BUILD)/librustc_unicode.rlib $(BUILD)/libcollections.rlib $(BUILD)/librand.rlib
-	$(RUSTC) $(RUSTCFLAGS) --cfg unix --crate-type rlib -o $@ $<
+$(BUILD)/libunwind.rlib: rust/src/libunwind/lib.rs $(BUILD)/libcore.rlib $(BUILD)/liblibc.rlib
+	$(RUSTC) $(RUSTCFLAGS) --crate-type rlib -o $@ $<
 
-$(BUILD)/libstd.rlib: libstd/src/lib.rs libstd/src/*.rs libstd/src/*/*.rs libstd/src/*/*/*.rs $(BUILD)/libcore.rlib $(BUILD)/libralloc.rlib $(BUILD)/liballoc.rlib $(BUILD)/libcollections.rlib $(BUILD)/librand.rlib $(BUILD)/libsystem.rlib
+$(BUILD)/libstd.rlib: rust/src/libstd/lib.rs $(BUILD)/libcore.rlib $(BUILD)/liblibc.rlib $(BUILD)/liballoc.rlib $(BUILD)/librustc_unicode.rlib $(BUILD)/libcollections.rlib $(BUILD)/librand.rlib $(BUILD)/libunwind.rlib $(BUILD)/libsystem.rlib
+	$(RUSTC) $(RUSTCFLAGS) --crate-type rlib -o $@ $<
+
+$(BUILD)/liboldstd.rlib: libstd/src/lib.rs libstd/src/*.rs libstd/src/*/*.rs libstd/src/*/*/*.rs $(BUILD)/libcore.rlib $(BUILD)/libralloc.rlib $(BUILD)/liballoc.rlib $(BUILD)/libcollections.rlib $(BUILD)/librand.rlib $(BUILD)/libsystem.rlib
 	$(RUSTC) $(RUSTCFLAGS) -o $@ $< -L native=libc/lib/
 
 $(BUILD)/liborbclient.rlib: crates/orbclient/src/lib.rs crates/orbclient/src/*.rs crates/orbclient/src/*/*.rs $(BUILD)/libstd.rlib

@@ -1,10 +1,11 @@
 #![deny(warnings)]
 
 use std::fs::File;
-use std::time::Instant;
+//use std::time::Instant;
 
 fn main() {
-    let uptime = Instant::now().inner().as_secs();
+    //let uptime = Instant::now().inner().as_secs();
+    let uptime = "?";
 
     let mut width = 0;
     let mut height = 0;

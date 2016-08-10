@@ -1,0 +1,43 @@
+[package]
+
+name = "x86"
+version = "0.7.0"
+authors = [
+  "Gerd Zellweger <mail@gerdzellweger.com>",
+  "Eric Kidd <git@randomhacks.net>",
+  "Philipp Oppermann <dev@phil-opp.com>",
+  "Dan Schatzberg <schatzberg.dan@gmail.com>",
+  "John Ericson <John_Ericson@Yahoo.com>"
+]
+
+description = "Library to program x86 (amd64) hardware. Contains x86 specific data structure descriptions, data-tables, as well as convenience function to call assembly instructions typically not exposed in higher level languages."
+
+homepage = "https://github.com/gz/rust-x86"
+repository = "https://github.com/gz/rust-x86"
+documentation = "http://gz.github.io/rust-x86/x86/"
+readme = "README.md"
+keywords = ["ia32", "os", "amd64", "x86", "x86-64"]
+license = "MIT"
+build = "build.rs"
+
+[features]
+default = ["performance-counter"]
+performance-counter = ["phf", "phf_codegen", "csv", "serde_json"]
+
+[[test]]
+name = "no_std_build"
+harness = false
+
+[build-dependencies]
+phf_codegen = { version = "0.7.7", optional = true }
+csv = { version = "0.14.3", optional = true }
+serde_json = { version = "0.6.0", optional = true }
+
+[dependencies]
+bitflags = "0.7"
+raw-cpuid = "2.*"
+
+[dependencies.phf]
+version = "0.7.7"
+optional = true
+features = ["core"]

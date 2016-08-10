@@ -65,6 +65,9 @@ use syscall::execute::execute;
 
 pub use externs::*;
 
+extern crate x86;
+use self::x86::{irq,halt,nop};
+
 /// Common std-like functionality.
 ///
 /// This module implements basic primitives for kernel space. They are not exposed to userspace.
@@ -203,22 +206,21 @@ static PIT_DURATION: Duration = Duration {
 /// This loop runs while the system is idle.
 fn idle_loop() {
     loop {
-        unsafe { asm!("cli" : : : : "intel", "volatile"); }
+        unsafe { irq::disable(); }
 
-        let mut halt = true;
+        let mut will_halt = true;
 
         for context in unsafe { & *env().contexts.get() }.iter().skip(1) {
             if context.blocked == 0 {
-                halt = false;
+                will_halt = false;
                 break;
             }
         }
 
-        if halt {
-            unsafe { asm!("sti ; hlt" : : : : "intel", "volatile"); }
+        if will_halt {
+            unsafe{ irq::enable(); halt(); }
         } else {
-            unsafe { asm!("sti ; nop ; cli" : : : : "intel", "volatile"); }
-            unsafe { context_switch(); }
+            unsafe { irq::enable(); nop(); irq::disable(); context_switch(); }
         }
     }
 }

@@ -1,7 +1,6 @@
 use arch::memory;
 
 extern crate x86;
-//pub use self::x86;
 
 use core::ptr;
 use self::x86::control_regs::{cr0,cr0_write,cr3_write,CR0_ENABLE_PAGING,CR0_WRITE_PROTECT};

@@ -22,6 +22,8 @@ pub mod bits32;
 pub mod bits64;
 pub mod shared;
 
+pub use shared::*;
+
 pub mod current {
   #[cfg(target_arch="x86")]
   pub use bits32::*;

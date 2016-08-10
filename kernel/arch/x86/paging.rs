@@ -1,6 +1,11 @@
 use arch::memory;
 
+extern crate x86;
+//pub use self::x86;
+
 use core::ptr;
+use self::x86::control_regs::{cr0,cr0_write,cr3_write,CR0_ENABLE_PAGING,CR0_WRITE_PROTECT};
+use self::x86::tlb::flush;
 
 // PAGE_DIRECTORY:
 // 1024 dwords pointing to page tables
@@ -54,11 +59,7 @@ impl Pager {
     /// - Sets CR3 to the page directory location, ensuring that flags are removed
     /// - *Will fail if memory allocation failed in Pager::new()*
     pub unsafe fn enable(&self) {
-        asm!("mov cr3, $0"
-            :
-            : "r"(self.directory & PF_NONE)
-            : "memory"
-            : "intel", "volatile");
+        cr3_write(self.directory & PF_NONE);
     }
 
     /// Map a virtual address to a physical address
@@ -226,14 +227,11 @@ impl Page {
             }
         }
 
-        asm!("mov cr3, $0
-            mov $0, cr0
-            or $0, $1
-            mov cr0, $0"
-            :
-            : "r"(PAGE_DIRECTORY), "r"(1 << 31 | 1 << 16)
-            : "memory"
-            : "intel", "volatile");
+        // Set the page directory address
+        cr3_write(PAGE_DIRECTORY);
+
+        // Enable paging, and also disable kernel writes to read-only memory.
+        cr0_write(cr0() | CR0_ENABLE_PAGING | CR0_WRITE_PROTECT);
     }
 
     /// Create a new memory page from a virtual address
@@ -252,11 +250,7 @@ impl Page {
 
     /// Flush the memory page
     pub unsafe fn flush(&self) {
-        asm!("invlpg [$0]"
-            :
-            : "{eax}"(self.virtual_address)
-            : "memory"
-            : "intel", "volatile");
+        flush(self.virtual_address)
     }
 
     /// Get the current entry data
